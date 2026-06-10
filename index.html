@@ -196,7 +196,7 @@ const LAYOUT = {
     {f:"__TRAILER",l:"Trailer # (added to Additional instructions)",k:"auto"},
     {f:"Manifest qty",l:"Manifest qty",k:"auto"},
     {f:"Manifest Wt",l:"Manifest Wt",k:"auto"},
-    {f:"Date yyyymmdd",l:"ETA date (yyyy-mm-dd)",k:"manual"},
+    {f:"Date yyyymmdd",l:"ETA at Port of Arrival — Date",k:"date"},
     {f:"Est time of arrival",l:"ETA time",k:"manual"},
     {f:"__AMPM",l:"AM / PM",k:"ampm"},
     {f:"__EDI",l:"EDI sent",k:"edi"}
@@ -217,7 +217,7 @@ const LAYOUT = {
     {f:"Trailer",l:"Trailer #",k:"auto"},
     {f:" Ctns  Plts",l:"# Ctns / Plts",k:"auto"},
     {f:"Weight",l:"Weight",k:"auto"},
-    {f:"ETA Date",l:"ETA date (yyyy-mm-dd)",k:"manual"},
+    {f:"ETA Date",l:"ETA at Port of Arrival — Date",k:"date"},
     {f:"ETA Time",l:"ETA time",k:"manual"}
   ]
 };
@@ -230,6 +230,7 @@ function hideMsg(el){el.className="msg";}
 function loadSaved(lane){try{return JSON.parse(localStorage.getItem("livctl_"+lane)||"{}");}catch(e){return{};}}
 function saveStatic(lane){const o={};LAYOUT[lane].forEach(r=>{if(r.k==="static"){const i=document.getElementById("fld_"+cssid(r.f));if(i)o[r.f]=i.value;}});localStorage.setItem("livctl_"+lane,JSON.stringify(o));}
 function cssid(s){return s.replace(/[^a-zA-Z0-9]/g,"_");}
+function todayISO(){const d=new Date(),p=n=>String(n).padStart(2,"0");return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate());}
 
 document.querySelectorAll(".lane").forEach(el=>{
   el.addEventListener("click",()=>{
@@ -336,7 +337,11 @@ function buildForm(){
     let val="";
     if(r.k==="static") val = (saved[r.f]!==undefined?saved[r.f]:(def[r.f]||""));
     else if(r.k==="auto") val = autoFor(LANE,r.f);
-    if(r.k==="ampm"){
+    if(r.k==="date"){
+      lab.appendChild(document.createTextNode(r.l));
+      const inp=document.createElement("input"); inp.type="date"; inp.id=id; inp.value=val||todayISO();
+      lab.appendChild(inp);
+    } else if(r.k==="ampm"){
       lab.innerHTML=r.l+'<select id="'+id+'"><option value="">—</option><option value="AM">AM</option><option value="PM">PM</option></select>';
     } else if(r.k==="edi"){
       lab.innerHTML=r.l+'<select id="'+id+'"><option value="No">No</option><option value="Yes">Yes</option></select>';
@@ -363,7 +368,7 @@ function niceName(scn){
   const s=(scn||"").toUpperCase();
   if(s.startsWith("PGBY")) return "PAPS "+scn;
   if(s.startsWith("79AV")) return "PARS "+scn;
-  return (LANE==="USA"?"PAPS ":"PARS ")+scn;
+  return scn||"coversheet";   // unknown prefix: don't guess PAPS/PARS
 }
 // Build the merged PDF (coversheet + scanned docs + extras). Returns {bytes, fname, scn, pages}.
 async function buildMergedPdf(){
@@ -441,12 +446,21 @@ $("#emailBtn").addEventListener("click",async ()=>{
     const vals=collect();
     const bol=(vals["House bill of lading"]||extracted.bol||"").trim();
     const rc=RECIP[LANE];
-    const subject=niceName(r.scn);
+    const su=(r.scn||"").toUpperCase();
+    const subject=(su.startsWith("PGBY")||su.startsWith("79AV"))?r.scn:"";  // only auto-fill subject for known prefixes
+    const etaDay=(vals["Date yyyymmdd"]||vals["ETA Date"]||"").trim();
+    let etaTime=(vals["Est time of arrival"]||vals["ETA Time"]||"").trim();
+    if(LANE==="USA"&&vals["__AMPM"]&&etaTime) etaTime+=" "+vals["__AMPM"];
     const body=[
       "Please find attached the pre-arrival coversheet and customs documents.",
       "",
-      "BOL #: "+(bol||"see attached"),
-      (LANE==="USA"?"Shipment Control # (SCN): ":"PARS #: ")+r.scn,
+      "• Shipment Control Number (SCN): "+r.scn,
+      "• BOL Number: "+(bol||""),
+      "• Estimated Port Arrival Day: "+etaDay,
+      "• Estimated Port Arrival Time: "+etaTime,
+      "• Customs Broker: Livingston International",
+      "",
+      "Please confirm receipt and advise when the shipment has been accepted and released for border crossing.",
       "",
       "Regards,",
       "CPC Logistics Dispatch"
