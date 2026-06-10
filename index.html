@@ -430,4 +430,43 @@ $("#emailBtn").addEventListener("click",async ()=>{
   if(!LANE||!samsaraBytes){showMsg($("#genmsg"),"err","Pick a lane and load the Samsara PDF first.");return;}
   showMsg($("#genmsg"),"warn","Preparing the email with the PDF attached …");
   try{
-    const r=awai
+    const r=await buildMergedPdf();
+    const rc=RECIP[LANE];
+    const subject=(LANE==="USA"?"PAPS Pre-Arrival":"PARS Notification")+(r.scn?(" — "+r.scn):"");
+    const body="Please find attached the pre-arrival coversheet and customs documents"+(r.scn?(" for "+r.scn):"")+".\r\n\r\nRegards,\r\nCPC Logistics Dispatch";
+    const b64=wrap76(bytesToBase64(r.bytes));
+    const bnd="coversheet_"+Date.now();
+    const eml=
+      "To: "+rc.to+"\r\n"+
+      "Cc: "+rc.cc+"\r\n"+
+      "Subject: "+subject+"\r\n"+
+      "X-Unsent: 1\r\n"+
+      "MIME-Version: 1.0\r\n"+
+      "Content-Type: multipart/mixed; boundary=\""+bnd+"\"\r\n\r\n"+
+      "--"+bnd+"\r\n"+
+      "Content-Type: text/plain; charset=utf-8\r\n"+
+      "Content-Transfer-Encoding: 7bit\r\n\r\n"+
+      body+"\r\n\r\n"+
+      "--"+bnd+"\r\n"+
+      "Content-Type: application/pdf; name=\""+r.fname+"\"\r\n"+
+      "Content-Transfer-Encoding: base64\r\n"+
+      "Content-Disposition: attachment; filename=\""+r.fname+"\"\r\n\r\n"+
+      b64+"\r\n"+
+      "--"+bnd+"--\r\n";
+    downloadData(eml,"message/rfc822","Email_"+LANE+"_"+r.scn+".eml");
+    const h=$("#emailHelp"); h.style.display="block";
+    h.innerHTML="<li><b>Open the file that just downloaded</b> ("+("Email_"+LANE+"_"+r.scn+".eml")+"). Outlook opens a new message with the coversheet + documents <b>already attached</b>, addressed to "+rc.to+" (cc "+rc.cc+").</li>"+
+      "<li>Review it and click <b>Send</b>.</li>"+
+      "<li>If it opens read-only (newer Outlook), click <b>Generate merged PDF</b> instead and attach that file to a normal email.</li>";
+    showMsg($("#genmsg"),"ok","Email ready with the PDF attached — open the downloaded .eml file and click Send.");
+  }catch(e){ console.error(e); showMsg($("#genmsg"),"err","Couldn't create the email: "+e.message); }
+});
+
+$("#resetBtn").addEventListener("click",()=>{
+  if(!LANE){alert("Pick a lane first, then reset its saved defaults.");return;}
+  localStorage.removeItem("livctl_"+LANE); if(samsaraBytes)buildForm();
+  alert("Saved defaults cleared for "+RECIP[LANE].name+".");
+});
+</script>
+</body>
+</html>
