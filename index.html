@@ -91,7 +91,7 @@
 
     <div class="row">
       <button class="primary" id="genBtn">Generate merged PDF</button>
-      <button class="ghost" id="emailBtn">Email to broker (PDF attached)</button>
+      <button class="ghost" id="emailBtn">Open broker email</button>
     </div>
     <div id="genmsg" class="msg"></div>
     <ol class="help" id="emailHelp" style="display:none"></ol>
@@ -164,8 +164,8 @@ try{
 const { PDFDocument } = PDFLib;
 
 const RECIP = {
-  USA:{ to:"usimports@livingstonintl.com", cc:"pgdispatchcan@cpclogistics.ca", tpl:PAPS_B64, name:"PAPS (USA-bound)" },
-  CAN:{ to:"cdnimports@livingstonintl.com", cc:"pgdispatchcan@cpclogistics.ca", tpl:PARS_B64, name:"PARS (Canada-bound)" }
+  USA:{ to:"usimports@livingstonintl.com", cc:"pgdispatchcan@cpclogistics.ca,pgdispatch@callcpc.com", tpl:PAPS_B64, name:"PAPS (USA-bound)" },
+  CAN:{ to:"cdnimports@livingstonintl.com", cc:"pgdispatchcan@cpclogistics.ca,pgdispatch@callcpc.com", tpl:PARS_B64, name:"PARS (Canada-bound)" }
 };
 
 const STATIC_DEFAULTS = {
@@ -359,6 +359,12 @@ function collect(){
   return o;
 }
 
+function niceName(scn){
+  const s=(scn||"").toUpperCase();
+  if(s.startsWith("PGBY")) return "PAPS "+scn;
+  if(s.startsWith("79AV")) return "PARS "+scn;
+  return (LANE==="USA"?"PAPS ":"PARS ")+scn;
+}
 // Build the merged PDF (coversheet + scanned docs + extras). Returns {bytes, fname, scn, pages}.
 async function buildMergedPdf(){
   saveStatic(LANE);
@@ -404,7 +410,7 @@ async function buildMergedPdf(){
   }
   const bytes=await cover.save();
   const scn=(vals["Shipment control  SCN"]||vals["PARS number"]||"shipment").replace(/[^A-Za-z0-9]/g,"")||"shipment";
-  return { bytes, fname:"Livingston_"+LANE+"_"+scn+".pdf", scn, pages:cover.getPageCount() };
+  return { bytes, fname:niceName(scn)+".pdf", scn, pages:cover.getPageCount() };
 }
 
 function downloadData(data, type, name){
@@ -425,41 +431,34 @@ $("#genBtn").addEventListener("click",async ()=>{
   }catch(e){ console.error(e); showMsg($("#genmsg"),"err","Something went wrong building the PDF: "+e.message); }
 });
 
-// Build an Outlook .eml with the merged PDF already attached (X-Unsent opens it as a sendable message).
+// Open Outlook (mailto) pre-filled with recipients + body; download the PDF to attach.
 $("#emailBtn").addEventListener("click",async ()=>{
   if(!LANE||!samsaraBytes){showMsg($("#genmsg"),"err","Pick a lane and load the Samsara PDF first.");return;}
-  showMsg($("#genmsg"),"warn","Preparing the email with the PDF attached …");
+  showMsg($("#genmsg"),"warn","Building the PDF and opening your email …");
   try{
     const r=await buildMergedPdf();
+    downloadData(r.bytes,"application/pdf",r.fname); window.__lastName=r.fname;
+    const vals=collect();
+    const bol=(vals["House bill of lading"]||extracted.bol||"").trim();
     const rc=RECIP[LANE];
-    const subject=(LANE==="USA"?"PAPS Pre-Arrival":"PARS Notification")+(r.scn?(" — "+r.scn):"");
-    const body="Please find attached the pre-arrival coversheet and customs documents"+(r.scn?(" for "+r.scn):"")+".\r\n\r\nRegards,\r\nCPC Logistics Dispatch";
-    const b64=wrap76(bytesToBase64(r.bytes));
-    const bnd="coversheet_"+Date.now();
-    const eml=
-      "To: "+rc.to+"\r\n"+
-      "Cc: "+rc.cc+"\r\n"+
-      "Subject: "+subject+"\r\n"+
-      "X-Unsent: 1\r\n"+
-      "MIME-Version: 1.0\r\n"+
-      "Content-Type: multipart/mixed; boundary=\""+bnd+"\"\r\n\r\n"+
-      "--"+bnd+"\r\n"+
-      "Content-Type: text/plain; charset=utf-8\r\n"+
-      "Content-Transfer-Encoding: 7bit\r\n\r\n"+
-      body+"\r\n\r\n"+
-      "--"+bnd+"\r\n"+
-      "Content-Type: application/pdf; name=\""+r.fname+"\"\r\n"+
-      "Content-Transfer-Encoding: base64\r\n"+
-      "Content-Disposition: attachment; filename=\""+r.fname+"\"\r\n\r\n"+
-      b64+"\r\n"+
-      "--"+bnd+"--\r\n";
-    downloadData(eml,"message/rfc822","Email_"+LANE+"_"+r.scn+".eml");
+    const subject=niceName(r.scn);
+    const body=[
+      "Please find attached the pre-arrival coversheet and customs documents.",
+      "",
+      "BOL #: "+(bol||"see attached"),
+      (LANE==="USA"?"Shipment Control # (SCN): ":"PARS #: ")+r.scn,
+      "",
+      "Regards,",
+      "CPC Logistics Dispatch"
+    ].join(String.fromCharCode(13,10));
+    const url="mailto:"+encodeURIComponent(rc.to)+"?cc="+encodeURIComponent(rc.cc)+"&subject="+encodeURIComponent(subject)+"&body="+encodeURIComponent(body);
+    window.location.href=url;
     const h=$("#emailHelp"); h.style.display="block";
-    h.innerHTML="<li><b>Open the file that just downloaded</b> ("+("Email_"+LANE+"_"+r.scn+".eml")+"). Outlook opens a new message with the coversheet + documents <b>already attached</b>, addressed to "+rc.to+" (cc "+rc.cc+").</li>"+
-      "<li>Review it and click <b>Send</b>.</li>"+
-      "<li>If it opens read-only (newer Outlook), click <b>Generate merged PDF</b> instead and attach that file to a normal email.</li>";
-    showMsg($("#genmsg"),"ok","Email ready with the PDF attached — open the downloaded .eml file and click Send.");
-  }catch(e){ console.error(e); showMsg($("#genmsg"),"err","Couldn't create the email: "+e.message); }
+    h.innerHTML="<li>Outlook opened a new message to <b>"+rc.to+"</b> (cc "+rc.cc.split(",").join(", ")+") with the subject and body filled in.</li>"+
+      "<li><b>Attach the downloaded PDF</b> ("+r.fname+") — drag it onto the message or use Attach.</li>"+
+      "<li>Review and click Send.</li>";
+    showMsg($("#genmsg"),"ok","Outlook opened with the email ready. Attach <b>"+r.fname+"</b> and click Send.");
+  }catch(e){ console.error(e); showMsg($("#genmsg"),"err","Couldn't prepare the email: "+e.message); }
 });
 
 $("#resetBtn").addEventListener("click",()=>{
