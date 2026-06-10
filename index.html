@@ -197,8 +197,7 @@ const LAYOUT = {
     {f:"Manifest qty",l:"Manifest qty",k:"auto"},
     {f:"Manifest Wt",l:"Manifest Wt",k:"auto"},
     {f:"Date yyyymmdd",l:"ETA at Port of Arrival — Date",k:"date"},
-    {f:"Est time of arrival",l:"ETA time",k:"manual"},
-    {f:"__AMPM",l:"AM / PM",k:"ampm"},
+    {f:"Est time of arrival",l:"ETA at Port of Arrival — Time",k:"time"},
     {f:"__EDI",l:"EDI sent",k:"edi"}
   ],
   CAN:[
@@ -218,7 +217,7 @@ const LAYOUT = {
     {f:" Ctns  Plts",l:"# Ctns / Plts",k:"auto"},
     {f:"Weight",l:"Weight",k:"auto"},
     {f:"ETA Date",l:"ETA at Port of Arrival — Date",k:"date"},
-    {f:"ETA Time",l:"ETA time",k:"manual"}
+    {f:"ETA Time",l:"ETA at Port of Arrival — Time",k:"time"}
   ]
 };
 
@@ -231,6 +230,7 @@ function loadSaved(lane){try{return JSON.parse(localStorage.getItem("livctl_"+la
 function saveStatic(lane){const o={};LAYOUT[lane].forEach(r=>{if(r.k==="static"){const i=document.getElementById("fld_"+cssid(r.f));if(i)o[r.f]=i.value;}});localStorage.setItem("livctl_"+lane,JSON.stringify(o));}
 function cssid(s){return s.replace(/[^a-zA-Z0-9]/g,"_");}
 function todayISO(){const d=new Date(),p=n=>String(n).padStart(2,"0");return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate());}
+function parse12(t){if(!/^\d{1,2}:\d{2}$/.test(t||""))return null;let[H,M]=t.split(":").map(Number);const ampm=H>=12?"PM":"AM";let h=H%12;if(h===0)h=12;return{disp:h+":"+String(M).padStart(2,"0"),ampm};}
 
 document.querySelectorAll(".lane").forEach(el=>{
   el.addEventListener("click",()=>{
@@ -341,6 +341,10 @@ function buildForm(){
       lab.appendChild(document.createTextNode(r.l));
       const inp=document.createElement("input"); inp.type="date"; inp.id=id; inp.value=val||todayISO();
       lab.appendChild(inp);
+    } else if(r.k==="time"){
+      lab.appendChild(document.createTextNode(r.l));
+      const inp=document.createElement("input"); inp.type="time"; inp.id=id; inp.value=val;
+      lab.appendChild(inp);
     } else if(r.k==="ampm"){
       lab.innerHTML=r.l+'<select id="'+id+'"><option value="">—</option><option value="AM">AM</option><option value="PM">PM</option></select>';
     } else if(r.k==="edi"){
@@ -388,7 +392,11 @@ async function buildMergedPdf(){
       ai.setText((cur?cur+"  ":"")+"Trailer #: "+vals["__TRAILER"]);
     }catch(e){}
   }
-  try{ if(vals.__AMPM==="PM") form.getCheckBox("Check Box2").check(); }catch(e){}
+  // ETA time: reformat the time-picker value (24h) and derive the USA AM/PM box
+  const timeField = LANE==="USA" ? "Est time of arrival" : "ETA Time";
+  const tp=parse12(vals[timeField]);
+  if(tp){ try{ form.getTextField(timeField).setText(LANE==="USA"?tp.disp:tp.disp+" "+tp.ampm); }catch(e){}
+          if(LANE==="USA"&&tp.ampm==="PM"){ try{ form.getCheckBox("Check Box2").check(); }catch(e){} } }
   try{ if(vals.__EDI==="Yes") form.getCheckBox("Check Box1").check(); }catch(e){}
   try{ form.flatten(); }catch(e){ console.warn("flatten",e); }
 
@@ -450,7 +458,7 @@ $("#emailBtn").addEventListener("click",async ()=>{
     const subject=(su.startsWith("PGBY")||su.startsWith("79AV"))?r.scn:"";  // only auto-fill subject for known prefixes
     const etaDay=(vals["Date yyyymmdd"]||vals["ETA Date"]||"").trim();
     let etaTime=(vals["Est time of arrival"]||vals["ETA Time"]||"").trim();
-    if(LANE==="USA"&&vals["__AMPM"]&&etaTime) etaTime+=" "+vals["__AMPM"];
+    {const tp=parse12(etaTime); if(tp) etaTime=tp.disp+" "+tp.ampm;}
     const body=[
       "Please find attached the pre-arrival coversheet and customs documents.",
       "",
