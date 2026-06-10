@@ -193,6 +193,7 @@ const LAYOUT = {
     {f:"Shipment control  SCN",l:"Shipment control # (SCN)",k:"auto"},
     {f:"House bill of lading",l:"House bill of lading #",k:"auto"},
     {f:"Container",l:"Container",k:"manual"},
+    {f:"__TRAILER",l:"Trailer # (added to Additional instructions)",k:"auto"},
     {f:"Manifest qty",l:"Manifest qty",k:"auto"},
     {f:"Manifest Wt",l:"Manifest Wt",k:"auto"},
     {f:"Date yyyymmdd",l:"ETA date (yyyy-mm-dd)",k:"manual"},
@@ -307,6 +308,7 @@ function autoFor(lane,field){
   if(lane==="USA") switch(field){
     case "Shipment control  SCN": return e.paps||"";
     case "House bill of lading": return e.bol||"";
+    case "__TRAILER": return e.trailer||"";
     case "Manifest qty": return e.qty||"";
     case "Manifest Wt": return e.weight||"";
   }
@@ -367,6 +369,14 @@ async function buildMergedPdf(){
     if(f.startsWith("__"))continue;
     try{ form.getTextField(f).setText(v||""); }catch(e){}
   }
+  // USA PAPS has no trailer field — write it into Additional instructions
+  if(LANE==="USA" && vals["__TRAILER"]){
+    try{
+      const ai=form.getTextField("Additional instructions");
+      const cur=(vals["Additional instructions"]||"").trim();
+      ai.setText((cur?cur+"  ":"")+"Trailer #: "+vals["__TRAILER"]);
+    }catch(e){}
+  }
   try{ if(vals.__AMPM==="PM") form.getCheckBox("Check Box2").check(); }catch(e){}
   try{ if(vals.__EDI==="Yes") form.getCheckBox("Check Box1").check(); }catch(e){}
   try{ form.flatten(); }catch(e){ console.warn("flatten",e); }
@@ -420,12 +430,4 @@ $("#emailBtn").addEventListener("click",async ()=>{
   if(!LANE||!samsaraBytes){showMsg($("#genmsg"),"err","Pick a lane and load the Samsara PDF first.");return;}
   showMsg($("#genmsg"),"warn","Preparing the email with the PDF attached …");
   try{
-    const r=await buildMergedPdf();
-    const rc=RECIP[LANE];
-    const subject=(LANE==="USA"?"PAPS Pre-Arrival":"PARS Notification")+(r.scn?(" — "+r.scn):"");
-    const body="Please find attached the pre-arrival coversheet and customs documents"+(r.scn?(" for "+r.scn):"")+".\r\n\r\nRegards,\r\nCPC Logistics Dispatch";
-    const b64=wrap76(bytesToBase64(r.bytes));
-    const bnd="coversheet_"+Date.now();
-    const eml=
-      "To: "+rc.to+"\r\n"+
-      "Cc: "+rc.cc+"\r\n"+
+    const r=awai
