@@ -91,7 +91,7 @@
 
     <div class="row">
       <button class="primary" id="genBtn">Generate merged PDF</button>
-      <button class="ghost" id="emailBtn">Compose email to broker</button>
+      <button class="ghost" id="emailBtn">Email to broker (PDF attached)</button>
     </div>
     <div id="genmsg" class="msg"></div>
     <ol class="help" id="emailHelp" style="display:none"></ol>
@@ -357,76 +357,75 @@ function collect(){
   return o;
 }
 
-$("#genBtn").addEventListener("click",generate);
-async function generate(){
+// Build the merged PDF (coversheet + scanned docs + extras). Returns {bytes, fname, scn, pages}.
+async function buildMergedPdf(){
+  saveStatic(LANE);
+  const vals=collect();
+  const cover=await PDFDocument.load(b64ToBytes(RECIP[LANE].tpl));
+  const form=cover.getForm();
+  for(const [f,v] of Object.entries(vals)){
+    if(f.startsWith("__"))continue;
+    try{ form.getTextField(f).setText(v||""); }catch(e){}
+  }
+  try{ if(vals.__AMPM==="PM") form.getCheckBox("Check Box2").check(); }catch(e){}
+  try{ if(vals.__EDI==="Yes") form.getCheckBox("Check Box1").check(); }catch(e){}
+  try{ form.flatten(); }catch(e){ console.warn("flatten",e); }
+
+  const sam=await PDFDocument.load(samsaraBytes);
+  const startPage = $("#skipSummary").checked ? 1 : 0;
+  const idxs=[]; for(let i=startPage;i<sam.getPageCount();i++) idxs.push(i);
+  const copied=await cover.copyPages(sam,idxs);
+  copied.forEach(p=>cover.addPage(p));
+
+  const extra=$("#extra").files;
+  for(const file of extra){
+    const buf=new Uint8Array(await file.arrayBuffer());
+    if(file.type==="application/pdf"){
+      const ed=await PDFDocument.load(buf);
+      const cp=await cover.copyPages(ed,ed.getPageIndices());
+      cp.forEach(p=>cover.addPage(p));
+    } else if(file.type==="image/jpeg"||file.type==="image/png"){
+      const img = file.type==="image/jpeg"?await cover.embedJpg(buf):await cover.embedPng(buf);
+      const pg=cover.addPage([612,792]); const m=36;
+      const maxW=612-2*m, maxH=792-2*m; let dim=img.scale(1); let width=dim.width, height=dim.height;
+      const r=Math.min(maxW/width,maxH/height,1); width*=r;height*=r;
+      pg.drawImage(img,{x:(612-width)/2,y:(792-height)/2,width,height});
+    }
+  }
+  const bytes=await cover.save();
+  const scn=(vals["Shipment control  SCN"]||vals["PARS number"]||"shipment").replace(/[^A-Za-z0-9]/g,"")||"shipment";
+  return { bytes, fname:"Livingston_"+LANE+"_"+scn+".pdf", scn, pages:cover.getPageCount() };
+}
+
+function downloadData(data, type, name){
+  const blob=new Blob([data],{type}); const url=URL.createObjectURL(blob);
+  const a=document.createElement("a"); a.href=url; a.download=name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),5000);
+}
+function bytesToBase64(bytes){ let bin=""; const chunk=0x8000; for(let i=0;i<bytes.length;i+=chunk){ bin+=String.fromCharCode.apply(null,bytes.subarray(i,i+chunk)); } return btoa(bin); }
+function wrap76(s){ return s.replace(/(.{76})/g,"$1\r\n"); }
+
+$("#genBtn").addEventListener("click",async ()=>{
   if(!LANE||!samsaraBytes){showMsg($("#genmsg"),"err","Pick a lane and load the Samsara PDF first.");return;}
   showMsg($("#genmsg"),"warn","Building the PDF …");
   try{
-    saveStatic(LANE);
-    const vals=collect();
-    const cover=await PDFDocument.load(b64ToBytes(RECIP[LANE].tpl));
-    const form=cover.getForm();
-    for(const [f,v] of Object.entries(vals)){
-      if(f.startsWith("__"))continue;
-      try{ form.getTextField(f).setText(v||""); }catch(e){}
-    }
-    try{ if(vals.__AMPM==="PM") form.getCheckBox("Check Box2").check(); }catch(e){}
-    try{ if(vals.__EDI==="Yes") form.getCheckBox("Check Box1").check(); }catch(e){}
-    try{ form.flatten(); }catch(e){ console.warn("flatten",e); }
-
-    const sam=await PDFDocument.load(samsaraBytes);
-    const startPage = $("#skipSummary").checked ? 1 : 0;
-    const idxs=[]; for(let i=startPage;i<sam.getPageCount();i++) idxs.push(i);
-    const copied=await cover.copyPages(sam,idxs);
-    copied.forEach(p=>cover.addPage(p));
-
-    const extra=$("#extra").files;
-    for(const file of extra){
-      const buf=new Uint8Array(await file.arrayBuffer());
-      if(file.type==="application/pdf"){
-        const ed=await PDFDocument.load(buf);
-        const cp=await cover.copyPages(ed,ed.getPageIndices());
-        cp.forEach(p=>cover.addPage(p));
-      } else if(file.type==="image/jpeg"||file.type==="image/png"){
-        const img = file.type==="image/jpeg"?await cover.embedJpg(buf):await cover.embedPng(buf);
-        const pg=cover.addPage([612,792]); const m=36;
-        const maxW=612-2*m, maxH=792-2*m; let dim=img.scale(1); let width=dim.width, height=dim.height;
-        const r=Math.min(maxW/width,maxH/height,1); width*=r;height*=r;
-        pg.drawImage(img,{x:(612-width)/2,y:(792-height)/2,width,height});
-      }
-    }
-
-    const out=await cover.save();
-    const scn=(vals["Shipment control  SCN"]||vals["PARS number"]||"shipment").replace(/[^A-Za-z0-9]/g,"")||"shipment";
-    const fname="Livingston_"+(LANE)+"_"+scn+".pdf";
-    const blob=new Blob([out],{type:"application/pdf"});
-    const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=fname; a.click();
-    setTimeout(()=>URL.revokeObjectURL(url),4000);
-    window.__lastName=fname;
-    showMsg($("#genmsg"),"ok","Done — <b>"+fname+"</b> downloaded ("+cover.getPageCount()+" pages: coversheet + documents). Review it, then use “Compose email”.");
+    const r=await buildMergedPdf();
+    downloadData(r.bytes,"application/pdf",r.fname); window.__lastName=r.fname;
+    showMsg($("#genmsg"),"ok","Done — <b>"+r.fname+"</b> downloaded ("+r.pages+" pages: coversheet + documents). Review it, then use the email button.");
   }catch(e){ console.error(e); showMsg($("#genmsg"),"err","Something went wrong building the PDF: "+e.message); }
-}
-
-$("#emailBtn").addEventListener("click",()=>{
-  if(!LANE){showMsg($("#genmsg"),"err","Pick a lane first.");return;}
-  const vals=collect();
-  const scn=vals["Shipment control  SCN"]||vals["PARS number"]||"";
-  const r=RECIP[LANE];
-  const subject=(LANE==="USA"?"PAPS Pre-Arrival":"PARS Notification")+(scn?(" — "+scn):"");
-  const body="Please find attached the pre-arrival coversheet and customs documents"+(scn?(" for "+scn):"")+".%0D%0A%0D%0ARegards,%0D%0ACPC Logistics Dispatch";
-  const url="mailto:"+encodeURIComponent(r.to)+"?cc="+encodeURIComponent(r.cc)+"&subject="+encodeURIComponent(subject)+"&body="+body;
-  window.location.href=url;
-  const h=$("#emailHelp"); h.style.display="block";
-  h.innerHTML="<li>Your email program opened a new message to <b>"+r.to+"</b> (cc "+r.cc+").</li>"+
-    "<li><b>Attach the downloaded file</b>"+(window.__lastName?(" (<b>"+window.__lastName+"</b>)"):"")+" — browsers can't attach it for you.</li>"+
-    "<li>Send.</li>";
 });
 
-$("#resetBtn").addEventListener("click",()=>{
-  if(!LANE){alert("Pick a lane first, then reset its saved defaults.");return;}
-  localStorage.removeItem("livctl_"+LANE); if(samsaraBytes)buildForm();
-  alert("Saved defaults cleared for "+RECIP[LANE].name+".");
-});
-</script>
-</body>
-</html>
+// Build an Outlook .eml with the merged PDF already attached (X-Unsent opens it as a sendable message).
+$("#emailBtn").addEventListener("click",async ()=>{
+  if(!LANE||!samsaraBytes){showMsg($("#genmsg"),"err","Pick a lane and load the Samsara PDF first.");return;}
+  showMsg($("#genmsg"),"warn","Preparing the email with the PDF attached …");
+  try{
+    const r=await buildMergedPdf();
+    const rc=RECIP[LANE];
+    const subject=(LANE==="USA"?"PAPS Pre-Arrival":"PARS Notification")+(r.scn?(" — "+r.scn):"");
+    const body="Please find attached the pre-arrival coversheet and customs documents"+(r.scn?(" for "+r.scn):"")+".\r\n\r\nRegards,\r\nCPC Logistics Dispatch";
+    const b64=wrap76(bytesToBase64(r.bytes));
+    const bnd="coversheet_"+Date.now();
+    const eml=
+      "To: "+rc.to+"\r\n"+
+      "Cc: "+rc.cc+"\r\n"+
