@@ -177,7 +177,7 @@ const STATIC_DEFAULTS = {
         "Carrier  FF name":"PROCTOR AND GAMBLE INC", "Contact name":"DAVID MUELLER",
         "Contact phone or email":"PHONE: (800) 274-3721; EMAIL: PGDispatch@callcpc.com",
         "Carrier code SCAC":"PGBY", "Port of arrival":"3801-DETROIT, MI- WINDSOR BRIDGE",
-        "Port of entry":"3801", "MCMX Number":"", "Livingston service team":"" },
+        "Port of entry":"3801", "MCMX Number":"", "Livingston service team":"10" },
   CAN:{ "Carrier name":"PROCTOR AND GAMBLE INC", "Carrier dispatch phone":"(800) 274-3721",
         "MCMX Number":"", "Name and address":"", "Client Number":"", "Port of entry number":"" }
 };
@@ -193,11 +193,11 @@ const LAYOUT = {
     {f:"Carrier code SCAC",l:"Carrier code (SCAC)",k:"static"},
     {f:"Port of arrival",l:"Port of arrival",k:"static"},
     {f:"Port of entry",l:"Port of entry",k:"static"},
+    {f:"Livingston service team",l:"Livingston service team",k:"static"},
     {sec:"This shipment"},
     {f:"Shipment control  SCN",l:"Shipment control # (SCN)",k:"auto"},
     {f:"House bill of lading",l:"House bill of lading #",k:"auto"},
-    {f:"Container",l:"Container",k:"manual"},
-    {f:"__TRAILER",l:"Trailer # (added to Additional instructions)",k:"auto"},
+    {f:"Container",l:"Container (= trailer #)",k:"auto"},
     {f:"Manifest qty",l:"Manifest qty",k:"auto"},
     {f:"Manifest Wt",l:"Manifest Wt",k:"auto"},
     {f:"Date yyyymmdd",l:"ETA at Port of Arrival — Date",k:"date"},
@@ -313,7 +313,7 @@ function autoFor(lane,field){
   if(lane==="USA") switch(field){
     case "Shipment control  SCN": return e.paps||"";
     case "House bill of lading": return e.bol||"";
-    case "__TRAILER": return e.trailer||"";
+    case "Container": return e.trailer||"";
     case "Manifest qty": return e.qty||"";
     case "Manifest Wt": return e.weight||"";
   }
@@ -390,19 +390,11 @@ async function buildMergedPdf(){
     if(f==="Shipment control  SCN"||f==="PARS number") val=val.replace(/\s+/g,"");
     try{ form.getTextField(f).setText(val); }catch(e){}
   }
-  // USA PAPS has no trailer field — write it into Additional instructions
-  if(LANE==="USA" && vals["__TRAILER"]){
-    try{
-      const ai=form.getTextField("Additional instructions");
-      const cur=(vals["Additional instructions"]||"").trim();
-      ai.setText((cur?cur+"  ":"")+"Trailer #: "+vals["__TRAILER"]);
-    }catch(e){}
-  }
   // ETA time: reformat the time-picker value (24h) and derive the USA AM/PM box
   const timeField = LANE==="USA" ? "Est time of arrival" : "ETA Time";
   const tp=parse12(vals[timeField]);
   if(tp){ try{ form.getTextField(timeField).setText(LANE==="USA"?tp.disp:tp.disp+" "+tp.ampm); }catch(e){}
-          if(LANE==="USA"&&tp.ampm==="PM"){ try{ form.getCheckBox("Check Box2").check(); }catch(e){} } }
+          if(LANE==="USA"){ try{ form.getCheckBox("Check Box2").acroField.dict.set(PDFLib.PDFName.of("V"), PDFLib.PDFName.of(tp.ampm==="PM"?"No":"NO")); }catch(e){} } }
   try{ if(vals.__EDI==="Yes") form.getCheckBox("Check Box1").check(); }catch(e){}
   try{ form.flatten(); }catch(e){ console.warn("flatten",e); }
 
