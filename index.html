@@ -168,8 +168,8 @@ try{
 const { PDFDocument } = PDFLib;
 
 const RECIP = {
-  USA:{ to:"usimports@livingstonintl.com", cc:"pgdispatchcan@cpclogistics.ca,pgdispatch@callcpc.com", tpl:PAPS_B64, name:"PAPS (USA-bound)" },
-  CAN:{ to:"cdnimports@livingstonintl.com", cc:"pgdispatchcan@cpclogistics.ca,pgdispatch@callcpc.com", tpl:PARS_B64, name:"PARS (Canada-bound)" }
+  USA:{ to:"usimports@livingstonintl.com", cc:"pgdispatchcan@cpclogistics.ca; pgdispatch@callcpc.com", tpl:PAPS_B64, name:"PAPS (USA-bound)" },
+  CAN:{ to:"cdnimports@livingstonintl.com", cc:"pgdispatchcan@cpclogistics.ca; pgdispatch@callcpc.com", tpl:PARS_B64, name:"PARS (Canada-bound)" }
 };
 
 const STATIC_DEFAULTS = {
@@ -302,7 +302,7 @@ async function extractSamsara(bytes){
   return {
     driver:valueUnder("Driver"), vehicle:valueUnder("Vehicle"),
     freight:valueUnder("Truckmate Freight Bill"), bol:valueUnder("BOL Number"),
-    paps:valueUnder("PAPS or PARS Number"), trailer:valueUnder("Trailer Number"),
+    paps:valueUnder("PAPS or PARS Number").replace(/\s+/g,""), trailer:valueUnder("Trailer Number"),
     seal:valueUnder("Trailer Seal Number"), weight:valueUnder("Trailer Weight"),
     qty:valueUnder("Manifest Quantity")
   };
@@ -386,7 +386,9 @@ async function buildMergedPdf(){
   const form=cover.getForm();
   for(const [f,v] of Object.entries(vals)){
     if(f.startsWith("__"))continue;
-    try{ form.getTextField(f).setText(v||""); }catch(e){}
+    let val=v||"";
+    if(f==="Shipment control  SCN"||f==="PARS number") val=val.replace(/\s+/g,"");
+    try{ form.getTextField(f).setText(val); }catch(e){}
   }
   // USA PAPS has no trailer field — write it into Additional instructions
   if(LANE==="USA" && vals["__TRAILER"]){
@@ -427,7 +429,7 @@ async function buildMergedPdf(){
   }
   const bytes=await cover.save();
   const scn=(vals["Shipment control  SCN"]||vals["PARS number"]||"shipment").replace(/[^A-Za-z0-9]/g,"")||"shipment";
-  return { bytes, fname:niceName(scn)+".pdf", scn, pages:cover.getPageCount() };
+  return { bytes, fname:(scn||"coversheet")+".pdf", scn, pages:cover.getPageCount() };
 }
 
 function downloadData(data, type, name){
@@ -480,7 +482,7 @@ $("#emailBtn").addEventListener("click",async ()=>{
     const url="mailto:"+encodeURIComponent(rc.to)+"?cc="+encodeURIComponent(rc.cc)+"&subject="+encodeURIComponent(subject)+"&body="+encodeURIComponent(body);
     window.location.href=url;
     const h=$("#emailHelp"); h.style.display="block";
-    h.innerHTML="<li>Outlook opened a new message to <b>"+rc.to+"</b> (cc "+rc.cc.split(",").join(", ")+") with the subject and body filled in.</li>"+
+    h.innerHTML="<li>Outlook opened a new message to <b>"+rc.to+"</b> (cc "+rc.cc.split(/\s*;\s*/).join(", ")+") with the subject and body filled in.</li>"+
       "<li><b>Attach the downloaded PDF</b> ("+r.fname+") — drag it onto the message or use Attach.</li>"+
       "<li>Review and click Send.</li>";
     showMsg($("#genmsg"),"ok","Outlook opened with the email ready. Attach <b>"+r.fname+"</b> and click Send.");
