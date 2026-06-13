@@ -447,7 +447,7 @@ async function buildMergedPdf(){
   const tp=parse12(vals[timeField]);
   if(tp){ try{ form.getTextField(timeField).setText(LANE==="USA"?tp.disp:tp.disp+" "+tp.ampm); }catch(e){}
           if(LANE==="USA"){ try{ form.getCheckBox("Check Box2").acroField.dict.set(PDFLib.PDFName.of("V"), PDFLib.PDFName.of(tp.ampm==="PM"?"No":"NO")); }catch(e){} } }
-  try{ if(vals.__EDI==="Yes") form.getCheckBox("Check Box1").check(); }catch(e){}
+  try{ if(vals.__EDI==="Yes") form.getCheckBox("Check Box1").acroField.dict.set(PDFLib.PDFName.of("V"), PDFLib.PDFName.of("NO")); else if(vals.__EDI==="No") form.getCheckBox("Check Box1").acroField.dict.set(PDFLib.PDFName.of("V"), PDFLib.PDFName.of("No")); }catch(e){}
   try{ form.flatten(); }catch(e){ console.warn("flatten",e); }
 
   const sam=await PDFDocument.load(samsaraBytes);
