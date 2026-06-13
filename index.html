@@ -404,7 +404,7 @@ function buildForm(){
     } else if(r.k==="ampm"){
       lab.innerHTML=r.l+'<select id="'+id+'"><option value="">—</option><option value="AM">AM</option><option value="PM">PM</option></select>';
     } else if(r.k==="edi"){
-      lab.innerHTML=r.l+'<select id="'+id+'"><option value="No">No</option><option value="Yes">Yes</option></select>';
+      lab.innerHTML=r.l+'<select id="'+id+'"><option value="Yes" selected>Yes</option><option value="No">No</option></select>';
     } else {
       lab.appendChild(document.createTextNode(r.l));
       const inp=document.createElement("input"); inp.id=id; inp.value=val;
